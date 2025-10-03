@@ -46,6 +46,27 @@ for (const auto& change : signal)
 
 Декодер можно создавать один раз и вызывать `feed` при каждом наблюдаемом изменении уровня (значение и длительность в микросекундах). Когда кадр успешно собран, вызывается переданный коллбэк.
 
+## JavaScript версия
+
+Для веб-проектов библиотека доступна в файле `datapacklib.js`. Его можно подключить напрямую тегом `<script>` или импортировать в сборку.
+
+```html
+<script src="datapacklib.js"></script>
+<script>
+	const { Encoder, Decoder, SignalBuffer, LightLevel } = datapack;
+	const encoder = new Encoder();
+	const payload = new Uint8Array([0x00, 0xFF, 0xA5]);
+	const buffer = new SignalBuffer();
+
+	if (encoder.encode(payload, payload.length, buffer)) {
+		const decoder = new Decoder((data) => console.log("Decoded", Array.from(data)));
+		buffer.data().forEach((change) => decoder.feed(change));
+	}
+</script>
+```
+
+В средах с поддержкой CommonJS достаточно `const datapack = require("./datapacklib.js");`. Интерфейс, конфигурация и статистика полностью повторяют поведение C++-версии.
+
 ## Сборка примера
 
 ```bash

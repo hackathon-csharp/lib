@@ -9,6 +9,8 @@
                 "-std=c++17",
                 "-Wall",
                 "-Wextra",
+                "-O0",
+                "-g",
                 "${workspaceFolder}/example.cpp",
                 "${workspaceFolder}/datapacklib.cpp",
                 "-o",

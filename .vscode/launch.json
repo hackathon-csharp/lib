@@ -3,10 +3,15 @@
     "configurations": [
         {
             "name": "Run datapack demo",
-            "type": "gdb",
+            "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/datapack_demo",
+            "cwd": "${workspaceFolder}",
             "preLaunchTask": "Build datapack demo",
+            "stopAtEntry": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "externalConsole": false
         }
     ]
 }

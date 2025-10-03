@@ -22,6 +22,36 @@ void printData(const std::uint8_t* data, std::size_t length)
     std::cout << "Decoded payload (utf-8): " << utf8 << '\n';
 }
 
+const char* levelToString(datapack::LightLevel level)
+{
+    using datapack::LightLevel;
+    switch (level)
+    {
+    case LightLevel::Off:
+        return "Off";
+    case LightLevel::White:
+        return "White";
+    case LightLevel::Red:
+        return "Red";
+    case LightLevel::Green:
+        return "Green";
+    case LightLevel::Blue:
+        return "Blue";
+    }
+    return "Unknown";
+}
+
+void printEncodedBuffer(const datapack::SignalBuffer& buffer)
+{
+    std::cout << "Encoded signal buffer (" << buffer.size() << " changes):\n";
+    for (std::size_t i = 0; i < buffer.size(); ++i)
+    {
+        const datapack::SignalChange& change = buffer[i];
+        std::cout << "  [" << i << "] level=" << levelToString(change.level)
+                  << ", duration=" << change.duration << " us\n";
+    }
+}
+
 void decoderCallback(const std::uint8_t* data, std::size_t length, void* /*context*/)
 {
     printData(data, length);
@@ -43,6 +73,8 @@ int main()
         std::cerr << "Failed to encode payload.\n";
         return 1;
     }
+
+    printEncodedBuffer(encoded);
 
     Decoder decoder(decoderCallback, nullptr, config);
 
