@@ -6,20 +6,25 @@
 #include <string>
 #include <vector>
 
-void printData(const std::vector<std::uint8_t>& data)
+void printData(const std::uint8_t* data, std::size_t length)
 {
     std::cout << "Frame decoded successfully!\n";
     std::cout << "Decoded payload (hex):";
-    for (std::uint8_t byte : data)
+    for (std::size_t i = 0; i < length; ++i)
     {
         std::cout << ' ' << std::hex << std::setw(2) << std::setfill('0')
-                  << static_cast<int>(byte);
+                  << static_cast<int>(data[i]);
     }
     std::cout << '\n';
     std::cout << std::dec;
 
-    std::string utf8(data.begin(), data.end());
+    std::string utf8(reinterpret_cast<const char*>(data), length);
     std::cout << "Decoded payload (utf-8): " << utf8 << '\n';
+}
+
+void decoderCallback(const std::uint8_t* data, std::size_t length, void* /*context*/)
+{
+    printData(data, length);
 }
 
 int main()
@@ -32,13 +37,14 @@ int main()
     const std::string message = "Привет, мир!";
     const std::vector<std::uint8_t> payload(message.begin(), message.end());
 
-    const std::vector<SignalChange> encoded = encoder.encode(payload);
+    SignalBuffer encoded;
+    if (!encoder.encode(payload.data(), payload.size(), encoded))
+    {
+        std::cerr << "Failed to encode payload.\n";
+        return 1;
+    }
 
-    Decoder decoder(
-        [&](const std::vector<std::uint8_t>& data) {
-            printData(data);
-        },
-        config);
+    Decoder decoder(decoderCallback, nullptr, config);
 
     std::random_device rd;
     std::mt19937 rng(rd());
@@ -80,16 +86,16 @@ int main()
 
     injectNoise("before");
 
-    for (const auto &change : encoded)
+    for (std::size_t i = 0; i < encoded.size(); ++i)
     {
-        decoder.feed(change);
+        decoder.feed(encoded[i]);
     }
 
     injectNoise("after");
 
-    for (const auto &change : encoded)
+    for (std::size_t i = 0; i < encoded.size(); ++i)
     {
-        decoder.feed(change);
+        decoder.feed(encoded[i]);
     }
 
     const DecoderStats stats = decoder.stats();

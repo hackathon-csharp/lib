@@ -1,33 +1,36 @@
+#if 0
 #include "datapacklib.h"
 
-#include <algorithm>
-#include <cmath>
-#include <cstddef>
-#include <cstdint>
-#include <cstdlib>
-#include <stdexcept>
-#include <utility>
-
-#if defined(DATAPACKLIB_DEBUG)
-#include <iostream>
-#endif
+#include <math.h>
+#include <stdlib.h>
+#include <string.h>
 
 namespace datapack
 {
 
 namespace
 {
-constexpr std::uint16_t CRC_POLY = 0x1021;
-constexpr std::uint16_t CRC_INIT = 0xFFFF;
+static inline long maxLong(long a, long b)
+{
+    return (a > b) ? a : b;
+}
 
-constexpr LightLevel SYMBOL_TO_COLOR[4] = {
+static inline double maxDouble(double a, double b)
+{
+    return (a > b) ? a : b;
+}
+
+static const std::uint16_t CRC_POLY = 0x1021;
+static const std::uint16_t CRC_INIT = 0xFFFF;
+
+static const LightLevel SYMBOL_TO_COLOR[4] = {
     LightLevel::Red,
     LightLevel::Green,
     LightLevel::Blue,
     LightLevel::White
 };
 
-bool colorToSymbol(LightLevel level, std::uint8_t& symbol)
+static bool colorToSymbol(LightLevel level, std::uint8_t& symbol)
 {
     switch (level)
     {
@@ -48,7 +51,7 @@ bool colorToSymbol(LightLevel level, std::uint8_t& symbol)
     }
 }
 
-std::uint16_t computeCrc16(const std::uint8_t* data, std::size_t size)
+static std::uint16_t computeCrc16(const std::uint8_t* data, std::size_t size)
 {
     std::uint16_t crc = CRC_INIT;
     for (std::size_t i = 0; i < size; ++i)
@@ -72,109 +75,49 @@ std::uint16_t computeCrc16(const std::uint8_t* data, std::size_t size)
 class SignalWriter
 {
 public:
-    explicit SignalWriter(long unitDuration, std::vector<SignalChange>& target)
-        : unitDuration_(unitDuration), target_(target)
+    SignalWriter(long unitDuration, SignalBuffer& target, bool& ok)
+        : unitDuration_(unitDuration), target_(target), ok_(ok)
     {
     }
 
     void emit(LightLevel level, long units)
     {
-        if (units <= 0)
+        if (!ok_ || units <= 0)
         {
             return;
         }
         const long duration = units * unitDuration_;
-        target_.push_back(SignalChange{level, duration});
+        SignalChange change;
+        change.level = level;
+        change.duration = duration;
+        if (!target_.push_back(change))
+        {
+            ok_ = false;
+        }
     }
 
 private:
     long unitDuration_;
-    std::vector<SignalChange>& target_;
+    SignalBuffer& target_;
+    bool& ok_;
 };
 
 } // namespace
 
 long ProtocolConfig::tolerance(long expectedUnits) const
 {
-    const auto fraction = std::max(allowedDriftFraction, 0.01);
-    const double raw = std::ceil(static_cast<double>(expectedUnits) * fraction);
-    const long minTolerance = 1;
-    return std::max<long>(minTolerance, static_cast<long>(raw));
+    const double fraction = maxDouble(allowedDriftFraction, 0.01);
+    const double raw = ceil(static_cast<double>(expectedUnits) * fraction);
+    return maxLong(1, static_cast<long>(raw));
 }
-
-Encoder::Encoder(ProtocolConfig config)
-    : config_(config)
+Encoder::Encoder(const ProtocolConfig& config)
 {
-    if (config_.unitDurationMicros <= 0)
-    {
-        throw std::invalid_argument("unitDurationMicros must be positive");
-    }
-    if (config_.symbolMarkUnits <= 0 || config_.separatorUnits <= 0)
-    {
-        throw std::invalid_argument("symbol and separator units must be positive");
-    }
-    if (config_.preambleMarkUnits <= 0 || config_.preambleSpaceUnits <= 0)
-    {
-        throw std::invalid_argument("preamble units must be positive");
-    }
+    configure(config);
 }
 
 const ProtocolConfig& Encoder::config() const noexcept
 {
     return config_;
-}
-
-std::vector<SignalChange> Encoder::encode(const std::vector<std::uint8_t>& payload) const
-{
-    if (payload.size() > config_.maxPayloadBytes)
-    {
-        throw std::invalid_argument("payload exceeds maxPayloadBytes");
-    }
-
-    std::vector<std::uint8_t> frame;
-    frame.reserve(9 + payload.size());
-    frame.push_back(static_cast<std::uint8_t>(config_.magic >> 8U));
-    frame.push_back(static_cast<std::uint8_t>(config_.magic & 0xFFU));
-    frame.push_back(config_.version);
-
-    const std::uint16_t length = static_cast<std::uint16_t>(payload.size());
-    frame.push_back(static_cast<std::uint8_t>(length >> 8U));
-    frame.push_back(static_cast<std::uint8_t>(length & 0xFFU));
-
-    const std::uint16_t crc = computeCrc16(payload.data(), payload.size());
-    frame.push_back(static_cast<std::uint8_t>(crc >> 8U));
-    frame.push_back(static_cast<std::uint8_t>(crc & 0xFFU));
-
-    frame.insert(frame.end(), payload.begin(), payload.end());
-
-    frame.push_back(static_cast<std::uint8_t>(config_.ender >> 8U));
-    frame.push_back(static_cast<std::uint8_t>(config_.ender & 0xFFU));
-
-    std::vector<SignalChange> result;
-    result.reserve(frame.size() * 8 + 8);
-    SignalWriter writer(config_.unitDurationMicros, result);
-
-    writer.emit(config_.preambleColor, config_.preambleMarkUnits);
-    writer.emit(LightLevel::Off, config_.preambleSpaceUnits);
-
-    const auto writeSymbol = [&](std::uint8_t symbol) {
-        const LightLevel level = SYMBOL_TO_COLOR[symbol & 0x03U];
-        writer.emit(level, config_.symbolMarkUnits);
-        writer.emit(LightLevel::Off, config_.separatorUnits);
-    };
-
-    for (std::uint8_t byte : frame)
-    {
-        for (int shift = 6; shift >= 0; shift -= 2)
-        {
-            const std::uint8_t symbol = static_cast<std::uint8_t>((byte >> shift) & 0x03U);
-            writeSymbol(symbol);
-        }
-    }
-
-    writer.emit(LightLevel::Off, config_.frameGapUnits);
-
-    return result;
 }
 
 Decoder::Decoder(DataCallback callback, ProtocolConfig config)
@@ -474,3 +417,6 @@ void Decoder::feed(const SignalChange& change)
 }
 
 } // namespace datapack
+#endif
+
+// Implementation moved to datapacklib.h for Arduino compatibility.
