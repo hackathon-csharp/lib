@@ -1,0 +1,18 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Run datapack demo",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/datapack_demo",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "preLaunchTask": "Build datapack demo",
+            "MIMode": "gdb"
+        }
+    ]
+}
