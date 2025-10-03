@@ -20,6 +20,34 @@ namespace
 constexpr std::uint16_t CRC_POLY = 0x1021;
 constexpr std::uint16_t CRC_INIT = 0xFFFF;
 
+constexpr LightLevel SYMBOL_TO_COLOR[4] = {
+    LightLevel::Red,
+    LightLevel::Green,
+    LightLevel::Blue,
+    LightLevel::White
+};
+
+bool colorToSymbol(LightLevel level, std::uint8_t& symbol)
+{
+    switch (level)
+    {
+    case LightLevel::Red:
+        symbol = 0;
+        return true;
+    case LightLevel::Green:
+        symbol = 1;
+        return true;
+    case LightLevel::Blue:
+        symbol = 2;
+        return true;
+    case LightLevel::White:
+        symbol = 3;
+        return true;
+    default:
+        return false;
+    }
+}
+
 std::uint16_t computeCrc16(const std::uint8_t* data, std::size_t size)
 {
     std::uint16_t crc = CRC_INIT;
@@ -49,14 +77,14 @@ public:
     {
     }
 
-    void emit(bool value, long units)
+    void emit(LightLevel level, long units)
     {
         if (units <= 0)
         {
             return;
         }
         const long duration = units * unitDuration_;
-        target_.push_back(SignalChange{value, duration});
+        target_.push_back(SignalChange{level, duration});
     }
 
 private:
@@ -81,9 +109,13 @@ Encoder::Encoder(ProtocolConfig config)
     {
         throw std::invalid_argument("unitDurationMicros must be positive");
     }
-    if (config_.zeroMarkUnits <= 0 || config_.oneMarkUnits <= 0 || config_.bitSeparatorUnits <= 0)
+    if (config_.symbolMarkUnits <= 0 || config_.separatorUnits <= 0)
     {
-        throw std::invalid_argument("mark and separator units must be positive");
+        throw std::invalid_argument("symbol and separator units must be positive");
+    }
+    if (config_.preambleMarkUnits <= 0 || config_.preambleSpaceUnits <= 0)
+    {
+        throw std::invalid_argument("preamble units must be positive");
     }
 }
 
@@ -119,28 +151,28 @@ std::vector<SignalChange> Encoder::encode(const std::vector<std::uint8_t>& paylo
     frame.push_back(static_cast<std::uint8_t>(config_.ender & 0xFFU));
 
     std::vector<SignalChange> result;
-    result.reserve(frame.size() * 2 + 4);
+    result.reserve(frame.size() * 8 + 8);
     SignalWriter writer(config_.unitDurationMicros, result);
 
-    writer.emit(true, config_.preambleMarkUnits);
-    writer.emit(false, config_.preambleSpaceUnits);
+    writer.emit(config_.preambleColor, config_.preambleMarkUnits);
+    writer.emit(LightLevel::Off, config_.preambleSpaceUnits);
 
-    const auto writeBit = [&](bool bit) {
-        const long markUnits = bit ? config_.oneMarkUnits : config_.zeroMarkUnits;
-        writer.emit(true, markUnits);
-        writer.emit(false, config_.bitSeparatorUnits);
+    const auto writeSymbol = [&](std::uint8_t symbol) {
+        const LightLevel level = SYMBOL_TO_COLOR[symbol & 0x03U];
+        writer.emit(level, config_.symbolMarkUnits);
+        writer.emit(LightLevel::Off, config_.separatorUnits);
     };
 
     for (std::uint8_t byte : frame)
     {
-        for (int bitIndex = 7; bitIndex >= 0; --bitIndex)
+        for (int shift = 6; shift >= 0; shift -= 2)
         {
-            const bool bit = ((byte >> bitIndex) & 0x01U) != 0U;
-            writeBit(bit);
+            const std::uint8_t symbol = static_cast<std::uint8_t>((byte >> shift) & 0x03U);
+            writeSymbol(symbol);
         }
     }
 
-    writer.emit(false, config_.frameGapUnits);
+    writer.emit(LightLevel::Off, config_.frameGapUnits);
 
     return result;
 }
@@ -151,6 +183,14 @@ Decoder::Decoder(DataCallback callback, ProtocolConfig config)
     if (config_.unitDurationMicros <= 0)
     {
         throw std::invalid_argument("unitDurationMicros must be positive");
+    }
+    if (config_.symbolMarkUnits <= 0 || config_.separatorUnits <= 0)
+    {
+        throw std::invalid_argument("symbol and separator units must be positive");
+    }
+    if (config_.preambleMarkUnits <= 0 || config_.preambleSpaceUnits <= 0)
+    {
+        throw std::invalid_argument("preamble units must be positive");
     }
     reset();
 }
@@ -178,7 +218,7 @@ void Decoder::reset()
     bitsFilled_ = 0;
     expectedPayloadLength_ = 0;
     payloadLengthKnown_ = false;
-    pendingBit_ = false;
+    pendingSymbol_ = 0;
     frameActive_ = false;
 }
 
@@ -189,7 +229,7 @@ void Decoder::startFrame()
     bitsFilled_ = 0;
     expectedPayloadLength_ = 0;
     payloadLengthKnown_ = false;
-    pendingBit_ = false;
+    pendingSymbol_ = 0;
     frameActive_ = true;
     state_ = State::ReadMark;
 }
@@ -199,33 +239,14 @@ bool Decoder::matches(long units, long expected) const
     return std::llabs(units - expected) <= config_.tolerance(expected);
 }
 
-bool Decoder::decodeMark(long units, bool& bitOut) const
+bool Decoder::decodeSymbol(long units, LightLevel level, std::uint8_t& symbolOut) const
 {
-    const long diffZero = std::llabs(units - config_.zeroMarkUnits);
-    const long diffOne = std::llabs(units - config_.oneMarkUnits);
-    const bool zeroOk = diffZero <= config_.tolerance(config_.zeroMarkUnits);
-    const bool oneOk = diffOne <= config_.tolerance(config_.oneMarkUnits);
+    if (!matches(units, config_.symbolMarkUnits))
+    {
+        return false;
+    }
 
-    if (zeroOk && oneOk)
-    {
-        if (diffZero == diffOne)
-        {
-            return false;
-        }
-        bitOut = diffOne < diffZero;
-        return true;
-    }
-    if (oneOk)
-    {
-        bitOut = true;
-        return true;
-    }
-    if (zeroOk)
-    {
-        bitOut = false;
-        return true;
-    }
-    return false;
+    return colorToSymbol(level, symbolOut);
 }
 
 void Decoder::abortFrame()
@@ -312,13 +333,13 @@ void Decoder::finalizeFrame()
     reset();
 }
 
-void Decoder::handleBit(bool bit)
+void Decoder::handleSymbol(std::uint8_t symbol)
 {
 #if defined(DATAPACKLIB_DEBUG)
-    std::cerr << "handleBit bit=" << bit << std::endl;
+    std::cerr << "handleSymbol value=" << static_cast<int>(symbol) << std::endl;
 #endif
-    currentByte_ = static_cast<std::uint8_t>((currentByte_ << 1U) | (bit ? 1U : 0U));
-    ++bitsFilled_;
+    currentByte_ = static_cast<std::uint8_t>((currentByte_ << 2U) | (symbol & 0x03U));
+    bitsFilled_ += 2;
     if (bitsFilled_ == 8)
     {
 #if defined(DATAPACKLIB_DEBUG)
@@ -369,92 +390,81 @@ void Decoder::feed(const SignalChange& change)
 
     const double driftLimit = std::max(config_.allowedDriftFraction, 0.01);
 
+    auto tryArmPreamble = [&]() {
+        if (change.level == config_.preambleColor && matches(units, config_.preambleMarkUnits))
+        {
+            state_ = State::WaitSpace;
+        }
+    };
+
     if (units <= 0 || error > driftLimit)
     {
         ++stats_.durationRejections;
         abortFrame();
-        if (change.value && matches(units, config_.preambleMarkUnits))
-        {
-            state_ = State::WaitSpace;
-        }
+        tryArmPreamble();
         return;
     }
 
     switch (state_)
     {
     case State::Idle:
-        if (change.value && matches(units, config_.preambleMarkUnits))
+        if (change.level == config_.preambleColor && matches(units, config_.preambleMarkUnits))
         {
             state_ = State::WaitSpace;
         }
         break;
     case State::WaitSpace:
-        if (!change.value && matches(units, config_.preambleSpaceUnits))
+        if (change.level == LightLevel::Off && matches(units, config_.preambleSpaceUnits))
         {
             startFrame();
         }
-        else if (change.value && matches(units, config_.preambleMarkUnits))
+        else if (change.level == config_.preambleColor && matches(units, config_.preambleMarkUnits))
         {
             state_ = State::WaitSpace;
         }
         else
         {
             abortFrame();
-            if (change.value && matches(units, config_.preambleMarkUnits))
-            {
-                state_ = State::WaitSpace;
-            }
+            tryArmPreamble();
         }
         break;
     case State::ReadMark:
     {
-        if (!change.value)
+        if (change.level == LightLevel::Off)
         {
             ++stats_.markRejections;
             abortFrame();
-            if (change.value && matches(units, config_.preambleMarkUnits))
-            {
-                state_ = State::WaitSpace;
-            }
+            tryArmPreamble();
             break;
         }
-        bool bit = false;
-        if (!decodeMark(units, bit))
+        std::uint8_t symbol = 0;
+        if (!decodeSymbol(units, change.level, symbol))
         {
             ++stats_.markRejections;
             abortFrame();
-            if (change.value && matches(units, config_.preambleMarkUnits))
-            {
-                state_ = State::WaitSpace;
-            }
+            tryArmPreamble();
             break;
         }
-        pendingBit_ = bit;
+        pendingSymbol_ = symbol;
         state_ = State::ReadSpace;
         break;
     }
     case State::ReadSpace:
-        if (change.value)
+        if (change.level != LightLevel::Off)
         {
             ++stats_.durationRejections;
             abortFrame();
-            if (change.value && matches(units, config_.preambleMarkUnits))
-            {
-                state_ = State::WaitSpace;
-            }
+            tryArmPreamble();
             break;
         }
-        if (!matches(units, config_.bitSeparatorUnits) && units < config_.bitSeparatorUnits)
+        if (!matches(units, config_.separatorUnits) && units < config_.separatorUnits)
         {
             ++stats_.durationRejections;
             abortFrame();
-            if (change.value && matches(units, config_.preambleMarkUnits))
-            {
-                state_ = State::WaitSpace;
-            }
+            tryArmPreamble();
             break;
         }
-        handleBit(pendingBit_);
+        handleSymbol(pendingSymbol_);
         if (state_ == State::ReadSpace)
         {
             state_ = State::ReadMark;

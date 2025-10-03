@@ -16,6 +16,7 @@ void printData(const std::vector<std::uint8_t>& data)
                   << static_cast<int>(byte);
     }
     std::cout << '\n';
+    std::cout << std::dec;
 
     std::string utf8(data.begin(), data.end());
     std::cout << "Decoded payload (utf-8): " << utf8 << '\n';
@@ -34,8 +35,7 @@ int main()
     const std::vector<SignalChange> encoded = encoder.encode(payload);
 
     Decoder decoder(
-        [&](const std::vector<std::uint8_t> &data)
-        {
+        [&](const std::vector<std::uint8_t>& data) {
             printData(data);
         },
         config);
@@ -44,7 +44,7 @@ int main()
     std::mt19937 rng(rd());
     std::uniform_int_distribution<int> noiseCountDist(100, 1000);
     std::uniform_int_distribution<long> durationDist(1, config.unitDurationMicros * config.frameGapUnits * 2);
-    std::bernoulli_distribution levelDist(0.5);
+    std::uniform_int_distribution<int> levelDist(0, 4);
 
     auto injectNoise = [&](const char *position)
     {
@@ -53,7 +53,27 @@ int main()
                   << " the real frame.\n";
         for (int i = 0; i < noiseCount; ++i)
         {
-            SignalChange noise{levelDist(rng), durationDist(rng)};
+            const int levelIndex = levelDist(rng);
+            LightLevel level = LightLevel::Off;
+            switch (levelIndex)
+            {
+            case 0:
+                level = LightLevel::Off;
+                break;
+            case 1:
+                level = LightLevel::White;
+                break;
+            case 2:
+                level = LightLevel::Red;
+                break;
+            case 3:
+                level = LightLevel::Green;
+                break;
+            case 4:
+                level = LightLevel::Blue;
+                break;
+            }
+            SignalChange noise{level, durationDist(rng)};
             decoder.feed(noise);
         }
     };
@@ -73,7 +93,6 @@ int main()
     }
 
     const DecoderStats stats = decoder.stats();
-    //std::cout << std::dec;
     std::cout << std::endl;
     std::cout << "Frames decoded: " << stats.framesDecoded << '\n';
     std::cout << "Magic mismatches: " << stats.magicMismatches << '\n';

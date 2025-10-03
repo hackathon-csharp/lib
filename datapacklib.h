@@ -13,9 +13,18 @@
 namespace datapack
 {
 
+enum class LightLevel
+{
+    Off = 0,
+    White,
+    Red,
+    Green,
+    Blue
+};
+
 struct SignalChange
 {
-    bool value;
+    LightLevel level;
     long duration;
 };
 
@@ -24,10 +33,10 @@ struct ProtocolConfig
     long unitDurationMicros = 600;
     long preambleMarkUnits = 16;
     long preambleSpaceUnits = 8;
-    long zeroMarkUnits = 1;
-    long oneMarkUnits = 2;
-    long bitSeparatorUnits = 1;
+    long symbolMarkUnits = 1;
+    long separatorUnits = 1;
     long frameGapUnits = 12;
+    LightLevel preambleColor = LightLevel::White;
     double allowedDriftFraction = 0.20;
     std::size_t maxPayloadBytes = 512;
     std::uint16_t magic = 0xC39A;
@@ -87,11 +96,11 @@ private:
     };
 
     void startFrame();
-    void handleBit(bool bit);
+    void handleSymbol(std::uint8_t symbol);
     void finalizeFrame();
     void abortFrame();
     [[nodiscard]] bool matches(long units, long expected) const;
-    [[nodiscard]] bool decodeMark(long units, bool& bitOut) const;
+    [[nodiscard]] bool decodeSymbol(long units, LightLevel level, std::uint8_t& symbolOut) const;
 
     ProtocolConfig config_{};
     DataCallback callback_{};
@@ -102,7 +111,7 @@ private:
     std::size_t bitsFilled_ = 0;
     std::size_t expectedPayloadLength_ = 0;
     bool payloadLengthKnown_ = false;
-    bool pendingBit_ = false;
+    std::uint8_t pendingSymbol_ = 0;
     bool frameActive_ = false;
 };
 
