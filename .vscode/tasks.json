@@ -12,7 +12,6 @@
                 "-O0",
                 "-g",
                 "${workspaceFolder}/example.cpp",
-                "${workspaceFolder}/datapacklib.cpp",
                 "-o",
                 "${workspaceFolder}/datapack_demo"
             ],
