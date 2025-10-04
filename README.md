@@ -54,24 +54,46 @@ if (encoder.encode(payloadBytes.data(), payloadBytes.size(), signal))
 
 ## JavaScript версия
 
-Для веб-проектов ранее использовалась версия `datapacklib.js`. Она соответствует старому протоколу (CRC16 + чёрные разделители) и будет обновлена позднее.
+`datapacklib.js` теперь реализует ту же схему кодирования, что и минималистичная C++-библиотека в этом репозитории. Модуль распространяется в формате UMD: его можно подключить через `<script>` на веб-странице, импортировать как CommonJS-модуль в Node.js или бандлить любым инструментом.
 
 ```html
 <script src="datapacklib.js"></script>
 <script>
-	const { Encoder, Decoder, SignalBuffer, LightLevel } = datapack;
-	const encoder = new Encoder();
-	const payload = new Uint8Array([0x00, 0xFF, 0xA5]);
-	const buffer = new SignalBuffer();
+	const {
+		LightLevel,
+		setSendData,
+		getSendCommands,
+		feed,
+		getReceivedData,
+		setOnPacketReceived,
+	} = datapack;
 
-	if (encoder.encode(payload, payload.length, buffer)) {
-		const decoder = new Decoder((data) => console.log("Decoded", Array.from(data)));
-		buffer.data().forEach((change) => decoder.feed(change));
-	}
+	const payload = 'Hello, IR! Привет мир!';
+	setOnPacketReceived(({ index, word }) => {
+		console.log('Packet', index, '=>', word.toString(16));
+	});
+
+	setSendData(payload);
+	const commands = getSendCommands();
+
+	// эмулируем передачу: просто подаём закодированные сигналы в декодер
+	commands.forEach((cmd) => feed(cmd));
+
+	const rawBytes = getReceivedData();
+	console.log('Decoded string:', new TextDecoder().decode(rawBytes));
 </script>
 ```
 
-В средах с поддержкой CommonJS достаточно `const datapack = require("./datapacklib.js");`. Интерфейс, конфигурация и статистика полностью повторяют поведение C++-версии.
+В Node.js аналогичные функции доступны через `const datapack = require('./datapacklib.js');`. Модуль предоставляет:
+
+- `LightLevel` — перечисление уровней освещения.
+- `setSendData(input)` — принимает строку, `ArrayBuffer`, `Uint8Array` или массив байтов и формирует внутренний буфер слов.
+- `getSendCommands()` — возвращает массив `{ value, duration }` для отправки.
+- `feed({ value, duration })` — подать наблюдаемый переход в декодер.
+- `setOnPacketReceived(callback)` — коллбэк при успешном восстановлении пакета.
+- `getReceivedData()` / `getReceivedWords()` — срезы накопленных данных.
+- `setMinDuration(value)` и `setSignalDuration(value)` — настройка временных параметров.
+- `resetEncoder()` и `resetDecoder()` — очистка внутренних буферов.
 
 ## Сборка примера
 

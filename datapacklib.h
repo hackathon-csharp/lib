@@ -114,7 +114,7 @@ namespace datapack
         long duration;
     };
 
-    static StaticVector<SignalChange, 4096> send_commands;
+    StaticVector<SignalChange, 4096> send_commands;
     static StaticVector<uint16_t, 256> send_buffer;
     static uint16_t receive_buffer[256];
     static uint32_t window = 12345678;
