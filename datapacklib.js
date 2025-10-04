@@ -21,7 +21,73 @@
     Blue: 4
   });
 
-  class StaticBuffer {
+  const SYMBOL_TO_COLOR = [
+    LightLevel.Red,
+    LightLevel.Green,
+    LightLevel.Blue,
+    LightLevel.White
+  ];
+
+  const COLOR_TO_SYMBOL = new Map([
+    [LightLevel.Red, 0],
+    [LightLevel.Green, 1],
+    [LightLevel.Blue, 2],
+    [LightLevel.White, 3]
+  ]);
+
+  const LIGHT_LEVEL_VALUES = new Set(Object.values(LightLevel));
+
+  function cloneValue(value) {
+    if (value == null) {
+      return value;
+    }
+    if (ArrayBuffer.isView(value)) {
+      return value.slice();
+    }
+    if (Array.isArray(value)) {
+      return value.slice();
+    }
+    if (typeof value === "object") {
+      return { ...value };
+    }
+    return value;
+  }
+
+  function toPositiveInteger(value, fallback) {
+    if (Number.isInteger(value) && value > 0) {
+      return value;
+    }
+    return fallback;
+  }
+
+  function toFiniteNumber(value, fallback) {
+    return Number.isFinite(value) ? value : fallback;
+  }
+
+  function toLightLevel(value, fallback) {
+    return LIGHT_LEVEL_VALUES.has(value) ? value : fallback;
+  }
+
+  function toUInt16(value, fallback) {
+    if (Number.isInteger(value) && value >= 0 && value <= 0xFFFF) {
+      return value & 0xFFFF;
+    }
+    return fallback;
+  }
+
+  function toUInt8(value, fallback) {
+    if (Number.isInteger(value) && value >= 0 && value <= 0xFF) {
+      return value & 0xFF;
+    }
+    return fallback;
+  }
+
+  function toPayloadLimit(value, fallback) {
+    const candidate = toPositiveInteger(value, fallback);
+    return Math.min(candidate, DATAPACKLIB_MAX_PAYLOAD);
+  }
+
+  class StaticVector {
     constructor(capacity) {
       if (!Number.isInteger(capacity) || capacity <= 0) {
         throw new RangeError("capacity must be a positive integer");
@@ -47,27 +113,41 @@
       if (this._size >= this._capacity) {
         return false;
       }
-      this._data[this._size++] = value;
+      this._data[this._size++] = cloneValue(value);
       return true;
     }
 
     append(data, count) {
-      if (!data) {
-        return count === 0;
+      if (data == null) {
+        return count === undefined || count === 0;
       }
-      const source = ArrayBuffer.isView(data) ? Array.from(data.subarray(0, count)) : Array.from(data).slice(0, count);
-      if (this._size + source.length > this._capacity) {
+      if (count !== undefined && (!Number.isInteger(count) || count < 0)) {
         return false;
       }
-      for (let i = 0; i < source.length; ++i) {
-        this._data[this._size + i] = source[i];
+
+      let items;
+      if (ArrayBuffer.isView(data)) {
+        const limit = count === undefined ? data.length : Math.min(count, data.length);
+        items = Array.from(data.subarray(0, limit));
+      } else {
+        const array = Array.isArray(data) ? data : Array.from(data);
+        const limit = count === undefined ? array.length : Math.min(count, array.length);
+        items = array.slice(0, limit);
       }
-      this._size += source.length;
+
+      if (this._size + items.length > this._capacity) {
+        return false;
+      }
+
+      for (let i = 0; i < items.length; ++i) {
+        this._data[this._size + i] = cloneValue(items[i]);
+      }
+      this._size += items.length;
       return true;
     }
 
     get(index) {
-      if (index < 0 || index >= this._size) {
+      if (!Number.isInteger(index) || index < 0 || index >= this._size) {
         throw new RangeError("index out of bounds");
       }
       return this._data[index];
@@ -90,7 +170,9 @@
     }
   }
 
-  class SignalBuffer extends StaticBuffer {
+  const StaticBuffer = StaticVector;
+
+  class SignalBuffer extends StaticVector {
     constructor(capacity = DATAPACKLIB_MAX_SIGNAL_CHANGES) {
       super(capacity);
     }
@@ -101,13 +183,17 @@
       }
       const level = change.level;
       const duration = change.duration;
-      if (!Object.values(LightLevel).includes(level)) {
+      if (!LIGHT_LEVEL_VALUES.has(level)) {
         throw new TypeError("Invalid light level");
       }
       if (!Number.isFinite(duration) || duration <= 0) {
         throw new RangeError("Duration must be a positive number");
       }
-      return super.push({ level, duration });
+      const normalizedDuration = Math.round(duration);
+      if (normalizedDuration <= 0) {
+        throw new RangeError("Duration must round to a positive integer");
+      }
+      return super.push({ level, duration: normalizedDuration });
     }
 
     data() {
@@ -120,18 +206,19 @@
       if (options instanceof ProtocolConfig) {
         options = { ...options };
       }
-      this.unitDurationMicros = options.unitDurationMicros ?? 600;
-      this.preambleMarkUnits = options.preambleMarkUnits ?? 16;
-      this.preambleSpaceUnits = options.preambleSpaceUnits ?? 8;
-      this.symbolMarkUnits = options.symbolMarkUnits ?? 1;
-      this.separatorUnits = options.separatorUnits ?? 1;
-      this.frameGapUnits = options.frameGapUnits ?? 12;
-      this.preambleColor = options.preambleColor ?? LightLevel.White;
-      this.allowedDriftFraction = options.allowedDriftFraction ?? 0.20;
-      this.maxPayloadBytes = options.maxPayloadBytes ?? DATAPACKLIB_MAX_PAYLOAD;
-      this.magic = options.magic ?? 0xC39A;
-      this.ender = options.ender ?? 0x51AA;
-      this.version = options.version ?? 1;
+      this.unitDurationMicros = toPositiveInteger(options.unitDurationMicros, 600);
+      this.preambleMarkUnits = toPositiveInteger(options.preambleMarkUnits, 16);
+      this.preambleSpaceUnits = toPositiveInteger(options.preambleSpaceUnits, 8);
+      this.symbolMarkUnits = toPositiveInteger(options.symbolMarkUnits, 1);
+      this.separatorUnits = toPositiveInteger(options.separatorUnits, 1);
+      this.frameGapUnits = toPositiveInteger(options.frameGapUnits, 12);
+      this.preambleColor = toLightLevel(options.preambleColor, LightLevel.White);
+      const drift = toFiniteNumber(options.allowedDriftFraction, 0.20);
+      this.allowedDriftFraction = drift > 0 ? drift : 0.20;
+      this.maxPayloadBytes = toPayloadLimit(options.maxPayloadBytes, DATAPACKLIB_MAX_PAYLOAD);
+      this.magic = toUInt16(options.magic, 0xC39A);
+      this.ender = toUInt16(options.ender, 0x51AA);
+      this.version = toUInt8(options.version, 1);
     }
 
     tolerance(expectedUnits) {
@@ -152,34 +239,17 @@
   }
 
   function symbolToColor(symbol) {
-    switch (symbol & 0x03) {
-      case 0:
-        return LightLevel.Red;
-      case 1:
-        return LightLevel.Green;
-      case 2:
-        return LightLevel.Blue;
-      default:
-        return LightLevel.White;
-    }
+    return SYMBOL_TO_COLOR[symbol & 0x03];
   }
 
   function colorToSymbol(level) {
-    switch (level) {
-      case LightLevel.Red:
-        return 0;
-      case LightLevel.Green:
-        return 1;
-      case LightLevel.Blue:
-        return 2;
-      case LightLevel.White:
-        return 3;
-      default:
-        return null;
-    }
+    return COLOR_TO_SYMBOL.has(level) ? COLOR_TO_SYMBOL.get(level) : null;
   }
 
   function computeCrc16(data, length = data.length) {
+    if (!ArrayBuffer.isView(data) && !Array.isArray(data)) {
+      throw new TypeError("data must be an array or typed array");
+    }
     const poly = 0x1021;
     let crc = 0xFFFF;
     for (let i = 0; i < length; ++i) {
@@ -236,7 +306,7 @@
       }
 
       if (typeof length === "number") {
-        if (length < 0 || length > payloadView.length) {
+        if (!Number.isInteger(length) || length < 0 || length > payloadView.length) {
           return false;
         }
         payloadView = payloadView.subarray(0, length);
@@ -247,8 +317,7 @@
       if (length > this._config.maxPayloadBytes || length > DATAPACKLIB_MAX_PAYLOAD) {
         return false;
       }
-
-      const frame = new StaticBuffer(DATAPACKLIB_MAX_PAYLOAD + 9);
+      const frame = new StaticVector(DATAPACKLIB_MAX_PAYLOAD + 9);
       const output = outBuffer instanceof SignalBuffer ? outBuffer : new SignalBuffer();
       output.clear();
 
@@ -281,16 +350,13 @@
       const writer = {
         unitDuration: this._config.unitDurationMicros,
         buffer: output,
-        set status(value) {
-          ok = Boolean(value);
-        },
         emit(level, units) {
           if (!ok || units <= 0) {
             return;
           }
           const change = {
             level,
-            duration: units * this.unitDuration
+            duration: Math.round(units * this.unitDuration)
           };
           if (!this.buffer.push(change)) {
             ok = false;
@@ -368,7 +434,7 @@
       this._callback = typeof callback === "function" ? callback : null;
       this._callbackContext = context ?? null;
       this._stats = new DecoderStats();
-      this._frameBuffer = new StaticBuffer(DATAPACKLIB_MAX_PAYLOAD + 9);
+      this._frameBuffer = new StaticVector(DATAPACKLIB_MAX_PAYLOAD + 9);
       this._state = "Idle";
       this._currentByte = 0;
       this._bitsFilled = 0;
@@ -414,15 +480,25 @@
     }
 
     feed(change) {
-      if (!this._valid || !change || !Number.isFinite(change.duration) || change.duration <= 0) {
+      if (!this._valid || !change) {
         return;
       }
 
-      const ratio = change.duration / this._config.unitDurationMicros;
+      const level = change.level;
+      const duration = change.duration;
+      if (!LIGHT_LEVEL_VALUES.has(level)) {
+        this._stats.markRejections += 1;
+        this._abortFrame();
+        return;
+      }
+      if (!Number.isFinite(duration) || duration <= 0) {
+        return;
+      }
+
+      const ratio = duration / this._config.unitDurationMicros;
       let units = Math.round(ratio);
       const error = Math.abs(ratio - units);
       const driftLimit = Math.max(this._config.allowedDriftFraction, 0.01);
-      const level = change.level;
       const invalidTiming = units <= 0 || error > driftLimit;
       const preambleUnits = this._config.preambleMarkUnits;
 
@@ -648,7 +724,7 @@
     }
   }
 
-  return {
+  return Object.freeze({
     DATAPACKLIB_MAX_PAYLOAD,
     DATAPACKLIB_MAX_SIGNAL_CHANGES,
     LightLevel,
@@ -657,6 +733,8 @@
     Encoder,
     Decoder,
     DecoderStats,
-    computeCrc16
-  };
+    computeCrc16,
+    StaticVector,
+    StaticBuffer: StaticVector
+  });
 });
