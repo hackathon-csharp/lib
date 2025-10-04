@@ -117,7 +117,7 @@ namespace datapack
     static StaticVector<SignalChange, 4096> send_commands;
     static StaticVector<uint16_t, 256> send_buffer;
     static uint16_t receive_buffer[256];
-    static uint32_t window = 0;
+    static uint32_t window = 12345678;
     static void (*onPacketReceived)(UnpackedPackage) = nullptr;
 
     int8_t getDbit(LightLevel prev, LightLevel curr)

@@ -3,6 +3,7 @@
 #include <iomanip>
 #include <iostream>
 #include <vector>
+#include <string>
 
 void onPacketReceived(datapack::UnpackedPackage pkg) {
     std::cout << "Received package: valid=" << (pkg.valid ? "true" : "false")
@@ -15,8 +16,8 @@ int main() {
     datapack::onPacketReceived = onPacketReceived;
 
     // Подготавливаем данные для отправки: несколько слов
-    std::vector<uint8_t> sendData = {0x12, 0x34, 0xAB, 0xCD, 0x56, 0x78};
-    datapack::setSendData(sendData.data(), sendData.size());
+    std::string message = "Hello, IR! Привет мир!";
+    datapack::setSendData(reinterpret_cast<const uint8_t *>(message.data()), message.size());
 
     std::cout << "Send buffer size: " << datapack::send_buffer.size() << std::endl;
     std::cout << "Encoded commands size: " << datapack::send_commands.size() << std::endl;
@@ -45,10 +46,13 @@ int main() {
     }
     std::cout << std::dec << std::endl;
 
-    // Проверяем совпадение первых sendData.size() байт
+    std::string receivedMessage(reinterpret_cast<char *>(receivedData), receivedLen);
+    std::cout << "Received message: " << receivedMessage << std::endl;
+
+    // Проверяем совпадение первых message.size() байт
     bool match = true;
-    for (size_t i = 0; i < sendData.size(); ++i) {
-        if (sendData[i] != receivedData[i]) {
+    for (size_t i = 0; i < message.size(); ++i) {
+        if (static_cast<uint8_t>(message[i]) != receivedData[i]) {
             match = false;
             break;
         }
