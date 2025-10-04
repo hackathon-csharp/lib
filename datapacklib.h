@@ -137,6 +137,8 @@ namespace datapack
                 return 2;
             case LightLevel::Blue:
                 return 3;
+            default:
+                return 0;
             }
         }
         case LightLevel::White:
@@ -152,6 +154,8 @@ namespace datapack
                 return 2;
             case LightLevel::Blue:
                 return 3;
+            default:
+                return 0;
             }
         }
         case LightLevel::Red:
@@ -167,6 +171,8 @@ namespace datapack
                 return 2;
             case LightLevel::Blue:
                 return 3;
+            default:
+                return 0;
             }
         }
         case LightLevel::Green:
@@ -182,6 +188,8 @@ namespace datapack
                 return 2;
             case LightLevel::Blue:
                 return 3;
+            default:
+                return 0;
             }
         }
         case LightLevel::Blue:
@@ -197,9 +205,12 @@ namespace datapack
                 return 2;
             case LightLevel::Green:
                 return 3;
+            default:
+                return 0;
             }
         }
         }
+        return 0;
     }
 
     LightLevel getLightForDbit(LightLevel prev, uint8_t data)
@@ -214,6 +225,7 @@ namespace datapack
             if (data == expectedData)
                 return ll;
         }
+        return LightLevel::Off;
     }
 
     static uint8_t crs8(uint16_t data, uint8_t index)
@@ -308,7 +320,7 @@ namespace datapack
     size_t getReceivedData(uint8_t *data)
     {
         size_t index = 0;
-        for (size_t i = 0; i < sizeof(receive_buffer) * sizeof(uint16_t); ++i)
+        for (size_t i = 0; i < sizeof(receive_buffer) / sizeof(uint16_t); ++i)
         {
             uint16_t word = receive_buffer[i];
             data[index++] = word & 0xFF;
