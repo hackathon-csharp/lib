@@ -261,7 +261,7 @@ namespace datapack
             uint8_t crc = crs8(data, index);
 
             // Кодируем index (1 байт)
-            for (int bitpair = 0; bitpair < 4; bitpair++)
+            for (int bitpair = 3; bitpair >= 0; --bitpair)
             {
                 uint8_t twobits = (index >> (bitpair * 2)) & 0x03;
                 LightLevel next = getLightForDbit(prevValue, twobits);
@@ -271,7 +271,7 @@ namespace datapack
 
             // Кодируем data low byte (1 байт)
             uint8_t data_low = data & 0xFF;
-            for (int bitpair = 0; bitpair < 4; bitpair++)
+            for (int bitpair = 3; bitpair >= 0; --bitpair)
             {
                 uint8_t twobits = (data_low >> (bitpair * 2)) & 0x03;
                 LightLevel next = getLightForDbit(prevValue, twobits);
@@ -281,7 +281,7 @@ namespace datapack
 
             // Кодируем data high byte (1 байт)
             uint8_t data_high = (data >> 8) & 0xFF;
-            for (int bitpair = 0; bitpair < 4; bitpair++)
+            for (int bitpair = 3; bitpair >= 0; --bitpair)
             {
                 uint8_t twobits = (data_high >> (bitpair * 2)) & 0x03;
                 LightLevel next = getLightForDbit(prevValue, twobits);
@@ -290,7 +290,7 @@ namespace datapack
             }
 
             // Кодируем crc (1 байт)
-            for (int bitpair = 0; bitpair < 4; bitpair++)
+            for (int bitpair = 3; bitpair >= 0; --bitpair)
             {
                 uint8_t twobits = (crc >> (bitpair * 2)) & 0x03;
                 LightLevel next = getLightForDbit(prevValue, twobits);
