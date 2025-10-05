@@ -357,7 +357,7 @@ namespace datapack
 
     void feed(SignalChange sc)
     {
-        if (sc.duration < min_duration)
+        if (sc.duration < min_duration || sc.value == prev_value)
             return;
 
         uint8_t data = getDbit(prev_value, sc.value);
